@@ -5,6 +5,7 @@ import { client } from "@/lib/prisma"
 import { z } from "zod"
 import { v4 as uuidv4 } from "uuid"
 import { onAuthenticatedUser } from "./auth"
+import { revalidatePath } from "next/cache"
 
 export const onGetAffiliateInfo = async (id: string) => {
   try {
@@ -291,5 +292,440 @@ export const onSearchGroups = async (
     }
   } catch (error) {
     return { status: "400", message: "Oops! something went wrong" }
+  }
+}
+
+export const onUpDateGroupSettings = async (
+  groupid: string,
+  type:
+    | "IMAGE"
+    | "ICON"
+    | "NAME"
+    | "DESCRIPTION"
+    | "JSONDESCRIPTION"
+    | "HTMLDESCRIPTION",
+  content: string,
+  path: string,
+) => {
+  try {
+    if (type === "IMAGE") {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          thumbnail: content,
+        },
+      })
+    }
+    if (type === "ICON") {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          icon: content,
+        },
+      })
+      console.log("uploaded image")
+    }
+    if (type === "DESCRIPTION") {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          description: content,
+        },
+      })
+    }
+    if (type === "NAME") {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          name: content,
+        },
+      })
+    }
+    if (type === "JSONDESCRIPTION") {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          jsonDescription: content,
+        },
+      })
+    }
+    if (type === "HTMLDESCRIPTION") {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          htmlDescription: content,
+        },
+      })
+    }
+    revalidatePath(path)
+    return { status: 200 }
+  } catch (error) {
+    console.log(error)
+    return { status: 400 }
+  }
+}
+
+export const onGetExploreGroup = async (category: string, paginate: number) => {
+  try {
+    const groups = await client.group.findMany({
+      where: {
+        category,
+        NOT: {
+          description: null,
+          thumbnail: null,
+        },
+      },
+      take: 6,
+      skip: paginate,
+    })
+
+    if (groups && groups.length > 0) {
+      return { status: 200, groups }
+    }
+
+    return {
+      status: 404,
+      message: "No groups found for this category",
+    }
+  } catch (error) {
+    return {
+      status: 400,
+      message: "Oops! something went wrong",
+    }
+  }
+}
+
+export const onGetPaginatedPosts = async (
+  identifier: string,
+  paginate: number,
+) => {
+  try {
+    const user = await onAuthenticatedUser()
+    const posts = await client.post.findMany({
+      where: {
+        channelId: identifier,
+      },
+      skip: paginate,
+      take: 2,
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        channel: {
+          select: {
+            name: true,
+          },
+        },
+        author: {
+          select: {
+            firstname: true,
+            lastname: true,
+            image: true,
+          },
+        },
+        _count: {
+          select: {
+            likes: true,
+            comments: true,
+          },
+        },
+        likes: {
+          where: {
+            userId: user.id!,
+          },
+          select: {
+            userId: true,
+            id: true,
+          },
+        },
+      },
+    })
+
+    if (posts && posts.length > 0) return { status: 200, posts }
+
+    return { status: 404 }
+  } catch (error) {
+    return { status: 400 }
+  }
+}
+
+export const onUpdateGroupGallery = async (
+  groupid: string,
+  content: string,
+) => {
+  try {
+    const mediaLimit = await client.group.findUnique({
+      where: {
+        id: groupid,
+      },
+      select: {
+        gallery: true,
+      },
+    })
+
+    if (mediaLimit && mediaLimit?.gallery.length < 6) {
+      await client.group.update({
+        where: {
+          id: groupid,
+        },
+        data: {
+          gallery: {
+            push: content,
+          },
+        },
+      })
+      revalidatePath(`/about/${groupid}`)
+      return { status: 200 }
+    }
+
+    return {
+      status: 400,
+      message: "Looks like your gallery has the maximum media allowed",
+    }
+  } catch (error) {
+    return { status: 400, message: "Looks like something went wrong" }
+  }
+}
+
+export const onJoinGroup = async (groupid: string) => {
+  try {
+    const user = await onAuthenticatedUser()
+    const member = await client.group.update({
+      where: {
+        id: groupid,
+      },
+      data: {
+        member: {
+          create: {
+            userId: user.id,
+          },
+        },
+      },
+    })
+    if (member) {
+      return { status: 200 }
+    }
+  } catch (error) {
+    return { status: 404 }
+  }
+}
+
+export const onGetAffiliateLink = async (groupid: string) => {
+  try {
+    const affiliate = await client.affiliate.findUnique({
+      where: {
+        groupId: groupid,
+      },
+      select: {
+        id: true,
+      },
+    })
+
+    return { status: 200, affiliate }
+  } catch (error) {
+    return { status: 400, message: "Oops! soomething went wrong" }
+  }
+}
+
+export const onVerifyAffilateLink = async (id: string) => {
+  try {
+    const link = await client.affiliate.findUnique({
+      where: {
+        id,
+      },
+    })
+
+    if (link) {
+      return { status: 200 }
+    }
+
+    return { status: 404 }
+  } catch (error) {
+    return { status: 400 }
+  }
+}
+
+export const onGetUserFromMembership = async (membershipid: string) => {
+  try {
+    const member = await client.members.findUnique({
+      where: {
+        id: membershipid,
+      },
+      select: {
+        User: true,
+      },
+    })
+
+    if (member) {
+      return { status: 200, member }
+    }
+  } catch (error) {
+    return { status: 400 }
+  }
+}
+
+export const onGetAllUserMessages = async (recieverId: string) => {
+  try {
+    const sender = await onAuthenticatedUser()
+    const messages = await client.message.findMany({
+      where: {
+        senderid: {
+          in: [sender.id!, recieverId],
+        },
+        recieverId: {
+          in: [sender.id!, recieverId],
+        },
+      },
+    })
+
+    if (messages && messages.length > 0) {
+      return { status: 200, messages }
+    }
+
+    return { status: 404 }
+  } catch (error) {
+    return { status: 400, message: "Oops something went wrong" }
+  }
+}
+
+export const onSendMessage = async (
+  recieverid: string,
+  messageid: string,
+  message: string,
+) => {
+  try {
+    const user = await onAuthenticatedUser()
+    const newMessage = await client.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        message: {
+          create: {
+            id: messageid,
+            recieverId: recieverid,
+            message,
+          },
+        },
+      },
+    })
+
+    if (newMessage) {
+      return { status: 200 }
+    }
+  } catch (error) {
+    return { status: 400 }
+  }
+}
+
+export const onGetPostInfo = async (postid: string) => {
+  try {
+    const user = await onAuthenticatedUser()
+    const post = await client.post.findUnique({
+      where: {
+        id: postid,
+      },
+      include: {
+        channel: {
+          select: {
+            name: true,
+          },
+        },
+        author: {
+          select: {
+            firstname: true,
+            lastname: true,
+            image: true,
+          },
+        },
+        _count: {
+          select: {
+            likes: true,
+            comments: true,
+          },
+        },
+        likes: {
+          where: {
+            userId: user.id!,
+          },
+          select: {
+            userId: true,
+            id: true,
+          },
+        },
+        comments: true,
+      },
+    })
+
+    if (post) return { status: 200, post }
+
+    return { status: 404, message: "No post found" }
+  } catch (error) {
+    return { status: 400, message: "Oops! something went wrong" }
+  }
+}
+
+export const onGetPostComments = async (postid: string) => {
+  try {
+    const comments = await client.comment.findMany({
+      where: {
+        postId: postid,
+        replied: false,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      include: {
+        user: true,
+        _count: {
+          select: {
+            reply: true,
+          },
+        },
+      },
+    })
+
+    if (comments && comments.length > 0) {
+      return { status: 200, comments }
+    }
+  } catch (error) {
+    return { status: 400 }
+  }
+}
+
+export const onGetCommentReplies = async (commentid: string) => {
+  try {
+    const replies = await client.comment.findUnique({
+      where: {
+        id: commentid,
+      },
+      select: {
+        reply: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    })
+
+    if (replies && replies.reply.length > 0) {
+      return { status: 200, replies: replies.reply }
+    }
+
+    return { status: 404, message: "No replies found" }
+  } catch (error) {
+    return { status: 400, message: "Oops something went wrong" }
   }
 }
